@@ -1,0 +1,11 @@
+version: '3.7'
+services:
+  api:
+    build: ./api
+    ports:
+      - 8000:8000
+    volumes:
+      - ./api:/app
+    environment:
+      - API_URL=${API_URL}
+      - API_KEY=${API_KEY}
