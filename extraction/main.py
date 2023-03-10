@@ -1,60 +1,83 @@
+import json
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Optional
 from google.cloud import storage
-import os
+import pandas as pd
 
-from extraction.models import logger
+from api.main import get_prices, get_stocks
 
-DEST_BUCKET = os.environ.get('TARGET_GCS_BUCKET', 'gs://gonzalez-dynamic-pricing')
-bucket_name = "gonzalez-dynamic-pricing/raw"
+client = storage.Client(project='speedy-gonzalez-379510')
+bucket = client.get_bucket('gonzalez-dynamic-pricing')
+TEAM_NUMBER = "3"
 
 
-# todo: write blobs to GCS from FastAPI raw data
-def write_to_blob(blob_name):
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(bucket_name)
+# read json from API and upload raw data to bucket
+def upload_json_to_bucket(data, blob_name):
     blob = bucket.blob(blob_name)
 
-    with blob.open("w") as f:
-        f.write(...)
+    blob.upload_from_string(
+        data=data,
+        content_type='application/json'
+    )
 
 
-TABLES = [
-    "product",
-    "productType",
-    "batch",
-]
+def download_json_from_bucket(blob_name):
+    blob = bucket.blob(blob_name)
+
+    return json.loads(blob.download_as_string(client=None))
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    # extract_raw_data() // todo: fix
+    products = download_json_from_bucket('raw/prices.json')
+    stocks = download_json_from_bucket('raw/stocks.json')
 
+    products_df = pd.DataFrame([
+        {
+            "id": str(product["id"]),
+            "sell_by": product["sell_by"],
+            "name": product_name,
+            "category": category_name,
+        }
+        for category_name, category in products.items()
+        for product_name, product in category["products"].items()
+    ])
+
+    stocks_df = pd.DataFrame([
+        {"product_id": str(product_id), "quantity": quantity}
+        for product_id, quantity in stocks[TEAM_NUMBER].items()
+    ])
+
+    df_merged = pd.merge(products_df, stocks_df, left_on="id", right_on="product_id", how="left")
+
+    df = (
+        df_merged.assign(
+            timestamp=pd.to_datetime(df_merged['ts_ms'] / 1000, unit='s', origin='unix').dt.strftime('%Y-%m-%dT%H')
+        )
+    )
+
+    df.to_parquet(f"gs://{bucket}/warehouse/test.pq", engine="pyarrow")
+
+
+def extract_raw_data():
     # do periodic extraction of the data from /raw
+    sleep_time = 60 * 10
     while True:
         now = datetime.now()
-        for table in TABLES:
-            try:
-                extract_raw_data(table, now)
-            except Exception as e:
-                ...
-        sleep_time = 60 * 10
-        logger.info("Next extraction scheduled at %s", datetime.now() + timedelta(seconds=sleep_time))
-        time.sleep(sleep_time)
+        try:
+            upload_json_to_bucket(get_prices(), 'raw/prices.json')
+            upload_json_to_bucket(get_stocks(), 'raw/stocks.json')
+
+            # logger.info("Next extraction scheduled at %s", datetime.now() + timedelta(seconds=sleep_time))
+            time.sleep(sleep_time)
+        except Exception as e:
+            logging.error("error")
 
 
-def extract_raw_data(table, now):
-    """
-1 get last extraction date (since)
-2 to_parquet(table, since, now)
-3 update peewee extraction date ?
-    """
-
-
-def to_parquet(table: str, since: Optional[datetime], until: datetime):
-    data = ()
-    data.to_parquet(f"{DEST_BUCKET}/{table}.parquet", partition_cols="ts")
+# read from bucket as batches
+# convert to parquet (pyarrow/spark/pandas)
+# upload to bucket (silver)
 
 
 if __name__ == "__main__":

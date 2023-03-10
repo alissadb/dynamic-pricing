@@ -1,18 +1,25 @@
-import json
-
 from fastapi import FastAPI
+import requests
 
 app = FastAPI()
 
 
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
-
-
 @app.get("/prices")
-def get_demo_prices():
-    with open("demo_data/prices_format_example.json") as f:
-        prices = json.load(f)
+@app.get("/")
+def get_prices():
+    response = str(requests.get(
+        url="https://api-hykmtavaga-ez.a.run.app/prices",
+        headers={"X-API-KEY": "#%@s@lvl9em}%30LcGSq@AETH"}
+    ).json())
+    return response
 
-    return prices
+
+@app.get("/stocks")
+def get_stocks():
+    response = str(requests.get(
+        url="https://api-hykmtavaga-ez.a.run.app/stocks",
+        headers={"X-API-KEY": "#%@s@lvl9em}%30LcGSq@AETH"}
+    ).json())
+    return response
+
+# todo:post endpoint for prices
